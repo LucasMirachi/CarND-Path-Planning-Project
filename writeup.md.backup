@@ -1,24 +1,24 @@
-[//]: # (Image References)
+# Writeup - CARN Path Planning Project
+---
 
-[car-ppc]: ./writeup_imgs/car-ppc-gif.gif "car-ppc"
-[frenet]: ./writeup_imgs/frenet.png "frenet"
-[gif1]: ./writeup_imgs/path-planning-1.gif "Gif 1"
-[gif2]: ./writeup_imgs/path-planning-2.gif "Gif 2"
-[gif3]: ./writeup_imgs/spline.gif "Gif 3"
-
-In short, the goal of this project is to build a path planner that creates smooth, safe trajectories for the car to follow, respecting the following limits:
+The goal of this project is to safely navigate around a virtual highway with other traffic that is driving +-10 MPH of the 50 MPH speed limit. The simulator environment provide the car's localization and sensor fusion data, and there is also a sparse map list of waypoints around the highway. So, in order to achieve this goal, it was asked to build a path planner that creates smooth, safe trajectories for the car to follow, while respecting the following limits:
 
 * The **speed goal** is to have the car traveling at (but not above) the 50 MPH speed limit as often as possible (but there will be times when traffic gets in the way).
-* In order for the passenger to have an enjoyable ride both the **jerk** and the **total acceleration** should not exceed 10 m/s^2. 
+* The car should be able to make one complete loop around the 6946m highway.
+* In order to provide an enjoyable ride for the vehicle's passenger, both the **jerk** and the **total acceleration** should not exceed 10 m/s^2. 
+* The car should avoid hitting other cars at all cost as well as driving inside of the marked road lanes at all times, unless going from one lane to another. 
+* The car should try to go as close as possible to the 50 MPH speed limit, which means passing slower traffic when possible, note that other cars will try to change lanes too. 
 * The car should only change lanes if such a change would be safe, and also if the lane change would help it move through the flow of traffic better. *
 
 In order to control the car movement, the simulator adopts the **Point Paths** system. Basically, the path planner outputs a list of x and y global map coordinates where each pair of x and y coordinates is a point, and all of the points together form a trajectory. Every 20 ms the car moves to the next point on the list. The car's new rotation becomes the line between the previous waypoint and the car's new location, just like the animation bellow shows.
 
-![car-ppc]
+<p align="center">
+<img src="./writeup_imgs/car-ppc-gif.gif" alt="car-ppc" width="350"/>
+</p>
 
 The simulator is telling us exactly where the "x, y" and "s, d" coordinates of the car are at, along with the car's angle and the car's speed.
 
-### Moving forward
+### Moving the ego-vehicle straight
 
 When first opening the simulator, I faced a immobile vehicle in the center of a road since it has an empty list of x and y points and the simulator couldn't define where in the cartesian plan the car is supposed to go next.
 
@@ -39,7 +39,9 @@ for (int i = 0; i < 50; ++i) {
 }
 ```
 
-![Gif1]
+<p align="center">
+<img src="./writeup_imgs/path-planning-1.gif" alt="gif1" width="450"/>
+</p>
 
 Despite being able to make the car drive forward at constant velocity, I made the car go from 0 MPH to 56 MPH in a single 20ms frame, causing a spike in acceleration!  
 
@@ -51,7 +53,9 @@ To do so, I'm going to make use of <mark>Frenet coordinates</mark>, which are a 
 
 With Frenet coordinates, we use the variables **s** and **d** to describe a vehicle's position on the road. The s coordinate represents distance along the road (also known as **longitudinal displacement**) and the d coordinate represents side-to-side position on the road (also known as **lateral displacement**).
 
-![frenet]
+<p align="center">
+<img src="./writeup_imgs/frenet.png" alt="frenet" width="350"/>
+</p>
 
 To convert the cartesian coordinates to Frenet coordinates, I used the helper function **getFrenet**, which takes in cartesian (x,y) coordinates and transforms them to Frenet(s,d) coordinates. The opposite conversion may be done by using the **getXY** helper function.
 
@@ -72,14 +76,20 @@ vector<double> xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_
 next_x_vals.push_back(xy[0]); //s
 next_y_vals.push_back(xy[1]); //d
 ```
-![gif2]
+
+<p align="center">
+<img src="./writeup_imgs/path-planning-2.gif" alt="gif2" width="450"/>
+</p>
 
 Despite being able to make the car drive inside the middle lane, we can notice that it has a kind of robotic movement while making curves, which violates our jerk limit! 
 
-In order to improve the car movement and smooth out this kind of disjointed path that the car is following in the simulator (so that it might not violate the acceleration and jerk limits), I'll be using the **spline** library. 
+In order to improve the car movement and smooth out this kind of disjointed path that the car is following in the simulator (so that it might not violate the acceleration and jerk limits), I'll be using the **spline** library [lines 227 to 265] which, by adding previous path points and calculating the distance "y position" 30 meters ahead, it was possible to achieve a smoother driving!  
 
-![gif3]
+<p align="center">
+<img src="./writeup_imgs/spline.gif" alt="gif3" width="450"/>
+</p>
 
+### Dealing with other vahicles on the road - Prediction & Behavior Planning
 
 In order to start working with sensor fusion and start taking in account the other cars on the road. Since the simulator is reporting in a list containing the position and movement information of all the other cars on the road (s, d, x, y, vx and vy values) and we want to use that to try to figure out where the other cars actually are, how fast they are going, and how we should behave as result.
 
@@ -118,3 +128,71 @@ else if(ref_vel < 49.5){
   ref_vel += .224;
 }
 ```
+
+In short, the **behavioral planning** component  determines what behavior the vehicle should exhibit at any point in time (for example: stopping at a traffic light or intersection, changing lanes, accelerating, or making a left turn onto a new street are all maneuvers that may be issued by this component). Looking at the overall flow of data in a self-driving car in the picture below,  we can see that behavior planning receives inputs from the prediction module and localization module (both of which get their inputs from sensor fusion). Meanwhile, the output from the behavior module goes directly to the trajectory planner (which also takes input from prediction and localization so that it can send trajectories to the motion controller). So, everything inside this <mark>highlighted</m> box is commonly referred to as Path Planning.
+
+
+<p align="center">
+<img src="./writeup_imgs/behavior.png" alt="behavior_planning" width="350"/>
+</p>
+
+ While the **prediction** component estimates what actions other objects might take in the future. For example, if another vehicle were identified, the prediction component would estimate its future trajectory. In this example prediction module we use to find out following car ahead is too close, car on the left is too close, and car on the right is too close.
+ 
+ <p align="center">
+<img src="./writeup_imgs/prediction.png" alt="prediction" width="200"/>
+</p>
+ 
+As explained, actual prediction module will be implemented using the approach mentioned above, but this highway project doesn't need to predict the trajectory of each vehicle as those vehicles trajectory will be on the straight lane most of the time.
+
+The final prediction code then became the following:
+
+```
+ if(prev_size > 0) {
+	car_s = end_path_s;
+}
+
+bool car_left= false;
+bool car_right = false;
+bool car_ahead = false;
+for(int i=0; i < sensor_fusion.size(); i++) {
+	float d = sensor_fusion[i][6];
+	int check_car_lane;
+	/*Currently, we assume that we only have three lanes and each lane has 4 meter width. In actual scenario, number of lanes and distance between the lanes and total lanes distance can be detected using computer vision technologies. 
+*/
+
+	if(d > 0 && d < 4) {
+		check_car_lane = 0;
+	} else if(d > 4 && d < 8) {
+		check_car_lane = 1;
+	} else if(d > 8 and d < 12) {
+		check_car_lane = 2;
+	}   
+                            
+	double vx = sensor_fusion[i][3];
+	double vy = sensor_fusion[i][4];
+	double check_speed = sqrt(vx*vx+vy*vy);
+	double check_car_s = sensor_fusion[i][5];   
+	//This will help to predict where the vehicle will be in future
+	check_car_s += ((double)prev_size*0.02*check_speed);
+	if(check_car_lane == lane) {
+		//A vehicle is on the same lane and check the car is in front of the ego car
+		car_ahead |= check_car_s > car_s && (check_car_s - car_s) < 30;                                     
+		} else if((check_car_lane - lane) == -1) {
+			//A vehicle is on the left lane and check that is in 30 meter range
+			car_left |= (car_s+30) > check_car_s  && (car_s-30) < check_car_s;
+		} else if((check_car_lane - lane) == 1) {
+			//A vehicle is on the right lane and check that is in 30 meter range
+			car_right |= (car_s+30) > check_car_s  && (car_s-30) < check_car_s;
+                            
+		}
+	}
+
+```
+
+And the final output inside the simulator:
+
+<p align="center">
+<img src="./writeup_imgs/path-planning-final.gif" alt="gif4" width="550"/>
+</p>
+
+Finally, the car is now able to drive for more than 10 minutes without having any incident (being able to even drive all around the highway track while controling the velocity and changing lanes only when it is safe enough)!
